@@ -1,0 +1,11 @@
+# Secrets / local config
+.env
+
+# Compiled Go binaries (from `go build` at the repo root)
+/ingest
+/server
+/judge
+
+# Re-include init.sql: a global ~/.gitignore may exclude *.sql, but this file
+# is an essential part of the project and must be committed.
+!init.sql

@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mtg-rules-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mtg
+      POSTGRES_PASSWORD: mtg_dev_password
+      POSTGRES_DB: mtg_rules
+    ports:
+      # Host 5433 → container 5432 : 5432 côté hôte est déjà pris par
+      # cgt-cogitiel-database-1 (postgres:17). Le port interne reste 5432.
+      - "5433:5432"
+    volumes:
+      - mtg_pg_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mtg -d mtg_rules"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mtg_pg_data:
