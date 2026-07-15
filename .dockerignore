@@ -1,0 +1,11 @@
+# Keep the build context small and free of secrets / client code.
+.git
+.github
+mobile
+docs
+*.md
+.env
+.env.example
+/ingest
+/server
+/judge

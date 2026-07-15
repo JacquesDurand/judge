@@ -47,6 +47,10 @@ docker compose up -d          # Postgres + pgvector + pg_trgm; init.sql runs on 
 The host port is **5433** (mapped to the container's 5432) to avoid clashing with
 a local Postgres on 5432 — see `compose.yaml`.
 
+> The app uses only pgvector's standard `vector` type and `<=>` operator (no ANN
+> index), so it also runs unchanged on any pgvector-compatible engine such as
+> [VectorChord](https://docs.vectorchord.ai/). See `docs/DEPLOYMENT.md`.
+
 ### 2. Configuration
 
 ```sh

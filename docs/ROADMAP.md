@@ -52,10 +52,16 @@ Work through these roughly in order. Each stage should work standalone before mo
 
 ## 5. Polish (optional, roughly in priority order)
 
-- [ ] Streaming responses instead of waiting for the full answer
-- [ ] Card name autocomplete in the input
-- [ ] Re-run ingestion on a schedule (new Comprehensive Rules version, fresh card data)
-- [ ] Tappable rule citations that show the full rule text
+- [x] Streaming responses instead of waiting for the full answer (`POST /chat/stream`
+      NDJSON: one `meta` line with citations, then `delta` lines, then `done`;
+      `internal/llm` GenerateStream + `internal/rag` AnswerStream; the app consumes
+      it via XHR. Generation prompt switched to plain text for clean mobile rendering.)
+- [x] Card name autocomplete in the input (`GET /cards/search`; a suggestion bar
+      above the input reacts to the word being typed, tap inserts the full name)
+- [ ] Re-run ingestion on a schedule (new Comprehensive Rules version, fresh card
+      data) — best done as a k8s CronJob once the server is hosted
+- [x] Tappable rule citations that show the full rule text (`GET /rules/{number}` +
+      a modal in the app; tap a rule-number chip to read the full rule)
 
 ## 6. If you ever publish (cost & abuse protection)
 

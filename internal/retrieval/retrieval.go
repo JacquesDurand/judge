@@ -86,6 +86,47 @@ func SearchGlossary(ctx context.Context, db Querier, query []float32, k int) ([]
 	return hits, rows.Err()
 }
 
+// SearchCardNames returns up to limit card names matching q (substring match,
+// ranked by trigram similarity), for input autocomplete. Uses the pg_trgm GIN
+// index on cards.name.
+func SearchCardNames(ctx context.Context, db Querier, q string, limit int) ([]string, error) {
+	const sql = `
+		SELECT name FROM cards
+		WHERE name ILIKE '%' || $1 || '%'
+		ORDER BY similarity(name, $1) DESC, length(name)
+		LIMIT $2`
+	rows, err := db.Query(ctx, sql, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
+}
+
+// RuleByNumber returns the full text of a single rule by its exact number
+// (e.g. "601.2a"), or nil if there is no such rule. Used to expand a citation.
+func RuleByNumber(ctx context.Context, db Querier, number string) (*RuleHit, error) {
+	const q = `SELECT rule_number, section_title, body FROM rules WHERE rule_number = $1`
+	var h RuleHit
+	err := db.QueryRow(ctx, q, number).Scan(&h.Number, &h.SectionTitle, &h.Body)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &h, nil
+}
+
 // Card is a resolved card with its printable fields.
 type Card struct {
 	OracleID   string

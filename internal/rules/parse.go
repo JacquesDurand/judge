@@ -3,11 +3,11 @@
 //
 // The .txt has a very regular three-level structure:
 //
-//	1. Game Concepts                     <- section header      (^[1-9]\. Title)
-//	100. General                         <- category header     (^\d{3}\. Title, no body)
-//	100.1. These Magic rules apply ...   <- rule                (^\d{3}\.\d+\. body)
-//	100.1a A two-player game ...         <- subrule             (^\d{3}\.\d+[a-z] body)
-//	    Example: ...                     <- continuation of the current (sub)rule
+//  1. Game Concepts                     <- section header      (^[1-9]\. Title)
+//  100. General                         <- category header     (^\d{3}\. Title, no body)
+//     100.1. These Magic rules apply ...   <- rule                (^\d{3}\.\d+\. body)
+//     100.1a A two-player game ...         <- subrule             (^\d{3}\.\d+[a-z] body)
+//     Example: ...                     <- continuation of the current (sub)rule
 //
 // The file starts with a table of contents that repeats the section/category
 // headers with no bodies; the real rules begin at the *second* occurrence of

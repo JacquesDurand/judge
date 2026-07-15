@@ -84,27 +84,50 @@ Answer the question using ONLY the provided context (Comprehensive Rules excerpt
 - If the provided context does not contain enough to answer correctly, say so plainly ("Je ne suis pas sûr d'après les règles récupérées ...") rather than guessing.
 - Be concise and concrete. Walk through the interaction step by step when it is subtle.
 - Card data is from Scryfall.
+- Write in plain text — no Markdown (no #, *, backticks or tables). Use short paragraphs, and simple "- " bullets only if a list genuinely helps. The answer is shown in a mobile chat bubble.
 - Write your entire answer in the language identified by this ISO code: %s.`
 
-// Generate produces the grounded answer from an assembled context block.
-func (c *Client) Generate(ctx context.Context, answerLanguage, contextBlock string) (string, error) {
-	system := fmt.Sprintf(generateSystem, answerLanguage)
-
-	msg, err := c.api.Messages.New(ctx, anthropic.MessageNewParams{
+// generateParams builds the request shared by the buffered and streaming paths.
+func (c *Client) generateParams(answerLanguage, contextBlock string) anthropic.MessageNewParams {
+	return anthropic.MessageNewParams{
 		Model:     anthropic.Model(c.genModel),
 		MaxTokens: 8192,
 		// Adaptive thinking helps on the chained-rule interactions that are the
 		// whole point of this tool; it stays off for trivial questions.
 		Thinking: anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{}},
-		System:   []anthropic.TextBlockParam{{Text: system}},
+		System:   []anthropic.TextBlockParam{{Text: fmt.Sprintf(generateSystem, answerLanguage)}},
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(contextBlock)),
 		},
-	})
+	}
+}
+
+// Generate produces the grounded answer from an assembled context block.
+func (c *Client) Generate(ctx context.Context, answerLanguage, contextBlock string) (string, error) {
+	msg, err := c.api.Messages.New(ctx, c.generateParams(answerLanguage, contextBlock))
 	if err != nil {
 		return "", fmt.Errorf("generate: %w", err)
 	}
 	return text(msg), nil
+}
+
+// GenerateStream is like Generate but calls onDelta with each chunk of answer
+// text as it is produced. Thinking blocks are not forwarded — only the visible
+// answer. onDelta runs on the calling goroutine, in order.
+func (c *Client) GenerateStream(ctx context.Context, answerLanguage, contextBlock string, onDelta func(string)) error {
+	stream := c.api.Messages.NewStreaming(ctx, c.generateParams(answerLanguage, contextBlock))
+	for stream.Next() {
+		event := stream.Current()
+		if delta, ok := event.AsAny().(anthropic.ContentBlockDeltaEvent); ok {
+			if text, ok := delta.Delta.AsAny().(anthropic.TextDelta); ok {
+				onDelta(text.Text)
+			}
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return fmt.Errorf("generate stream: %w", err)
+	}
+	return nil
 }
 
 // text concatenates all text blocks in a response (skipping thinking blocks).
