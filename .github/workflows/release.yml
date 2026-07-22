@@ -35,15 +35,39 @@ jobs:
         run: npm ci
 
       - name: Build APK on EAS and fetch it
+        timeout-minutes: 45 # hard cap so a stuck build fails instead of running for hours
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          # --json prints the finished build(s) to stdout (logs go to stderr);
-          # the APK download URL is in artifacts.applicationArchiveUrl.
+          set -euo pipefail
+
+          # --no-wait queues the build and returns immediately with its id/URL,
+          # so we can poll (and log) its status instead of staring at a silent
+          # blocking command.
           npx --yes eas-cli build \
             --platform android --profile preview \
-            --non-interactive --json > build.json
-          apk_url=$(jq -r '.[0].artifacts.applicationArchiveUrl' build.json)
+            --non-interactive --no-wait --json > queued.json
+          build_id=$(jq -r '.[0].id' queued.json)
+          echo "EAS build queued: $build_id"
+          echo "  $(jq -r '.[0].artifacts.buildUrl // empty' queued.json)"
+
+          # Poll until the build leaves the queue/build phase. Status casing has
+          # varied across eas-cli versions, so compare lowercased.
+          while true; do
+            view=$(npx --yes eas-cli build:view "$build_id" --json)
+            status=$(echo "$view" | jq -r '.status' | tr '[:upper:]' '[:lower:]')
+            echo "EAS status: $status"
+            case "$status" in
+              finished) break ;;
+              errored|canceled) echo "EAS build $status"; exit 1 ;;
+            esac
+            sleep 30
+          done
+
+          apk_url=$(echo "$view" | jq -r '.artifacts.applicationArchiveUrl // .artifacts.buildUrl // empty')
+          if [ -z "$apk_url" ]; then
+            echo "could not find APK URL in build:view output:"; echo "$view"; exit 1
+          fi
           echo "APK URL: $apk_url"
           curl -fL -o mtg-rules-assistant.apk "$apk_url"
 
