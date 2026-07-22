@@ -1,6 +1,17 @@
-import { API_BASE_URL } from "./config";
+import { getServerUrl } from "./serverUrl";
 
 export type RuleCitation = { number: string; section: string };
+
+// pingServer checks whether a candidate base URL responds on /healthz, for the
+// settings screen's "Test" button. Never throws — returns false on any failure.
+export async function pingServer(baseUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseUrl}/healthz`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 export type ChatResponse = {
   answer: string;
@@ -15,9 +26,10 @@ export async function askChat(
   question: string,
   signal?: AbortSignal
 ): Promise<ChatResponse> {
+  const base = getServerUrl();
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}/chat`, {
+    res = await fetch(`${base}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question }),
@@ -25,7 +37,7 @@ export async function askChat(
     });
   } catch {
     throw new Error(
-      `Impossible de joindre le serveur (${API_BASE_URL}). Vérifie qu'il tourne et que le téléphone est sur le même Wi-Fi.`
+      `Impossible de joindre le serveur (${base}). Vérifie qu'il tourne et que le téléphone est sur le même Wi-Fi.`
     );
   }
 
@@ -49,7 +61,7 @@ export type RuleText = { number: string; section: string; body: string };
 export async function getRule(number: string): Promise<RuleText> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}/rules/${encodeURIComponent(number)}`);
+    res = await fetch(`${getServerUrl()}/rules/${encodeURIComponent(number)}`);
   } catch {
     throw new Error("Impossible de joindre le serveur.");
   }
@@ -63,7 +75,7 @@ export async function getRule(number: string): Promise<RuleText> {
 // failure yields an empty list rather than surfacing an error in the input.
 export async function searchCards(q: string): Promise<string[]> {
   try {
-    const res = await fetch(`${API_BASE_URL}/cards/search?q=${encodeURIComponent(q)}`);
+    const res = await fetch(`${getServerUrl()}/cards/search?q=${encodeURIComponent(q)}`);
     if (!res.ok) return [];
     return (await res.json()) as string[];
   } catch {
@@ -84,7 +96,7 @@ export type CardText = {
 export async function getCard(name: string): Promise<CardText> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}/card?name=${encodeURIComponent(name)}`);
+    res = await fetch(`${getServerUrl()}/card?name=${encodeURIComponent(name)}`);
   } catch {
     throw new Error("Impossible de joindre le serveur.");
   }
@@ -106,8 +118,9 @@ export type StreamHandlers = {
 // incrementally, so we use XMLHttpRequest (whose onprogress fires with the
 // accumulated text) and parse whole lines out of it. Returns an abort function.
 export function askChatStream(question: string, handlers: StreamHandlers): () => void {
+  const base = getServerUrl();
   const xhr = new XMLHttpRequest();
-  xhr.open("POST", `${API_BASE_URL}/chat/stream`);
+  xhr.open("POST", `${base}/chat/stream`);
   xhr.setRequestHeader("Content-Type", "application/json");
 
   let consumed = 0; // how far into responseText we've already parsed
@@ -165,7 +178,7 @@ export function askChatStream(question: string, handlers: StreamHandlers): () =>
   };
   xhr.onerror = () =>
     handlers.onError?.(
-      `Impossible de joindre le serveur (${API_BASE_URL}). Vérifie qu'il tourne et le Wi-Fi.`
+      `Impossible de joindre le serveur (${base}). Vérifie qu'il tourne et le Wi-Fi.`
     );
 
   xhr.send(JSON.stringify({ question }));

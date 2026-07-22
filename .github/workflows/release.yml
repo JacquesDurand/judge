@@ -1,0 +1,61 @@
+name: Release APK
+
+# Build a distributable Android APK on demand — never on every PR (EAS Build uses
+# cloud credits). Push a tag like `v1.0.1` to cut a GitHub Release with the APK
+# attached, or run it manually from the Actions tab to get the APK as a run
+# artifact without creating a release.
+#
+# Requires one repository secret: EXPO_TOKEN (expo.dev → Account settings →
+# Access tokens). EAS manages the signing keystore created during the first
+# interactive build, so this runs non-interactively.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  android-apk:
+    name: Build & publish Android APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # allow attaching the APK to a GitHub Release
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build APK on EAS and fetch it
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          # --json prints the finished build(s) to stdout (logs go to stderr);
+          # the APK download URL is in artifacts.applicationArchiveUrl.
+          npx --yes eas-cli build \
+            --platform android --profile preview \
+            --non-interactive --json > build.json
+          apk_url=$(jq -r '.[0].artifacts.applicationArchiveUrl' build.json)
+          echo "APK URL: $apk_url"
+          curl -fL -o mtg-rules-assistant.apk "$apk_url"
+
+      - name: Attach APK to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mobile/mtg-rules-assistant.apk
+
+      - name: Upload APK as a run artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mtg-rules-assistant-apk
+          path: mobile/mtg-rules-assistant.apk

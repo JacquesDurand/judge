@@ -45,3 +45,9 @@ jobs:
 
       - name: Type-check
         run: npx tsc --noEmit
+
+      # Bundles the JS for Android without a full native build — cheap, no
+      # secrets, and catches import/config errors that tsc alone misses. The
+      # actual APK is built by the release workflow (.github/workflows/release.yml).
+      - name: Verify the app bundles
+        run: npx expo export --platform android --output-dir "$RUNNER_TEMP/expo-export"

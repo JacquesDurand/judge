@@ -4,6 +4,8 @@ go 1.26.4
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.57.0
+	github.com/coreos/go-oidc/v3 v3.20.0
+	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/jackc/pgx/v5 v5.10.0
 )
 
@@ -21,6 +23,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 )

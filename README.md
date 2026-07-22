@@ -94,9 +94,54 @@ cd mobile
 npx expo start                # scan the QR code with Expo Go (same Wi-Fi as this machine)
 ```
 
-Point the app at your server by editing the one line in `mobile/config.ts`
-(default: your machine's LAN IP on port 8090). The app is pinned to **Expo SDK 54**
-to match a specific Expo Go build — see `mobile/` if you upgrade.
+The app asks for the **server address on first launch** and remembers it; you can
+change it anytime via the gear (⚙) in the header. On a physical phone use the
+server's LAN IP, e.g. `http://192.168.1.20:8090` (not `localhost` — that resolves
+to the phone itself). For the simulator/web the `http://localhost:8090` default is
+fine; you can override the default via `EXPO_PUBLIC_API_BASE_URL` (e.g. in a
+gitignored `mobile/.env.local`) if you don't want to type it each run. The app is
+pinned to **Expo SDK 54** to match a specific Expo Go build — see
+`mobile/CLAUDE.md` if you upgrade.
+
+### 7. Build a standalone APK (optional)
+
+Expo Go is enough for development; to get an installable `.apk` (e.g. to sideload
+on Android), build it in the cloud with [EAS](https://docs.expo.dev/build/introduction/) —
+no local Android SDK or JDK required:
+
+```sh
+cd mobile
+npx eas-cli login                                  # your Expo account
+npx eas-cli init                                   # links/creates the Expo project (writes the projectId)
+npx eas-cli build -p android --profile preview     # cloud build → download URL for the APK
+```
+
+The `preview` profile (see `eas.json`) produces an APK for internal distribution;
+the first build offers to generate and store a signing keystore for you. Because
+the server address is entered in-app, the same APK works against any server — no
+per-server rebuild.
+
+> The build enables Android cleartext traffic (`expo-build-properties` in
+> `app.json`) so the app can reach a plain-HTTP server on your LAN. If you only
+> ever point it at an HTTPS server, you can drop that plugin option for a stricter
+> network policy.
+>
+> To update an already-installed APK in place, bump `android.versionCode` in
+> `app.json` before rebuilding (Android refuses to install an equal/older code).
+
+**Automated releases.** Instead of building by hand, push a tag to let CI do it:
+`.github/workflows/release.yml` builds the APK on EAS and attaches it to a GitHub
+Release. It needs one repository secret, `EXPO_TOKEN` (expo.dev → Account settings
+→ Access tokens). Then:
+
+```sh
+# bump android.versionCode in mobile/app.json, commit, then:
+git tag v1.0.1 && git push origin v1.0.1     # → Release with the APK attached
+```
+
+Running it manually from the Actions tab (workflow_dispatch) instead uploads the
+APK as a run artifact, handy for testing the pipeline without cutting a release.
+It never runs on pull requests, so it doesn't spend EAS credits on every push.
 
 ## Repository layout
 
@@ -128,8 +173,10 @@ go test ./...                 # Go unit tests (parser, keyword normalisation)
 cd mobile && npx tsc --noEmit # type-check the app
 ```
 
-CI runs the build, `go vet`, tests, and the mobile type-check on every pull
-request (see `.github/workflows/ci.yml`).
+CI runs the build, `go vet`, tests, the mobile type-check, and a mobile bundle
+check (`expo export`) on every pull request (see `.github/workflows/ci.yml`). A
+separate, manually/tag-triggered workflow builds and publishes the APK (see
+"Build a standalone APK" above).
 
 ## Status
 

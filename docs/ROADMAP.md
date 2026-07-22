@@ -62,6 +62,18 @@ Work through these roughly in order. Each stage should work standalone before mo
       data) — best done as a k8s CronJob once the server is hosted
 - [x] Tappable rule citations that show the full rule text (`GET /rules/{number}` +
       a modal in the app; tap a rule-number chip to read the full rule)
+- [x] Standalone APK build pipeline via EAS (`mobile/eas.json`: `preview` → APK,
+      `production` → AAB, `development` → dev client). App identity set; the actual
+      cloud build is a user step (`npx eas-cli build -p android --profile preview`).
+      See README §7.
+- [x] In-app server configuration: the user enters the server address on first
+      launch (and via the header gear), persisted with AsyncStorage
+      (`mobile/serverUrl.ts`), with a "Test" button that pings `/healthz`. One
+      build works against any server; Android cleartext enabled so a LAN
+      `http://` server is reachable.
+- [x] CI: PRs also verify the mobile bundle (`expo export`); a separate tag/manual
+      `release.yml` builds the APK on EAS and attaches it to a GitHub Release
+      (needs the `EXPO_TOKEN` secret). Never builds the APK on PRs.
 
 ## 6. If you ever publish (cost & abuse protection)
 
@@ -73,9 +85,18 @@ users) can hammer, spending real money on every call. Defenses, in priority orde
       and Anthropic consoles. This is the ultimate backstop: even if everything
       else fails, the bill stops at a known ceiling. Worth setting up from day one,
       even for personal use.
-- [ ] **Rate limiting on the server** — N requests/minute per device or IP.
-- [ ] **Lightweight auth** — an anonymous per-device token so a single abuser can
-      be throttled or banned without affecting everyone.
+- [x] **Rate limiting on the server** — per-client token bucket (`internal/ratelimit`):
+      `RATE_LIMIT_RPM` sustained req/min + `RATE_LIMIT_BURST`, keyed on the
+      authenticated subject (JWT `sub`) or client IP; returns `429` +
+      `Retry-After`. Wired inside the auth middleware in `cmd/server`.
+- [x] **Auth (server side)** — OIDC bearer-token validation middleware
+      (`internal/auth`): when `OIDC_ISSUER`/`OIDC_AUDIENCE` are set, every route
+      except `/healthz` requires a valid JWT, verified offline against the
+      provider's JWKS. Works with any standard provider (Authentik, Keycloak,
+      Auth0). Open (with a startup warning) when unset, for local dev.
+- [ ] **Auth (app side)** — Authorization Code + PKCE login flow to obtain the
+      token. Requires a custom mobile build (a redirect scheme), so it couples
+      with the packaged-build step, not Expo Go.
 - [ ] **Cache identical questions** — many users ask the same classic rules
       questions; serving those from cache means zero LLM calls.
 

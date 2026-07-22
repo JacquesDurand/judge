@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "MTG Rules Assistant",
+    "slug": "mtg-rules-assistant",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,6 +10,8 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.mtgrules.app",
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -20,6 +22,22 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "ba11c0c4-922b-48ac-931b-ab9b86178f1c"
+      }
+    },
+    "owner": "ce_legging_noir",
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
   }
 }

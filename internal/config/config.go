@@ -4,6 +4,7 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -38,4 +39,18 @@ func MustEnv(key string) string {
 		log.Fatalf("missing required env var %s (see .env.example)", key)
 	}
 	return v
+}
+
+// IntEnv returns key parsed as an int, or def if it is unset. A non-integer value
+// is a configuration mistake, so it exits rather than silently using the default.
+func IntEnv(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		log.Fatalf("env var %s must be an integer, got %q", key, v)
+	}
+	return n
 }

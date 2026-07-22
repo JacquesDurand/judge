@@ -13,15 +13,18 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	"judge/internal/auth"
 	"judge/internal/config"
 	"judge/internal/embed"
 	"judge/internal/llm"
 	"judge/internal/rag"
+	"judge/internal/ratelimit"
 	"judge/internal/retrieval"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,19 +52,40 @@ func main() {
 	llmClient := llm.New(config.MustEnv("LLM_API_KEY"), config.MustEnv("LLM_MODEL"))
 	engine := rag.New(pool, embedClient, llmClient, 10)
 
+	authMW, err := buildAuth(ctx)
+	if err != nil {
+		log.Fatalf("auth: %v", err)
+	}
+
 	srv := &server{engine: engine, pool: pool}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /chat", srv.handleChat)
-	mux.HandleFunc("POST /chat/stream", srv.handleChatStream)
-	mux.HandleFunc("GET /rules/{number}", srv.handleRule)
-	mux.HandleFunc("GET /card", srv.handleCard)
-	mux.HandleFunc("GET /cards/search", srv.handleCardSearch)
-	mux.HandleFunc("GET /healthz", srv.handleHealth)
+	// Protected API routes. Everything here requires a valid bearer token when
+	// auth is enabled.
+	api := http.NewServeMux()
+	api.HandleFunc("POST /chat", srv.handleChat)
+	api.HandleFunc("POST /chat/stream", srv.handleChatStream)
+	api.HandleFunc("GET /rules/{number}", srv.handleRule)
+	api.HandleFunc("GET /card", srv.handleCard)
+	api.HandleFunc("GET /cards/search", srv.handleCardSearch)
+
+	// Apply rate limiting (if enabled) around the API routes, then authentication
+	// on the outside: auth runs first so it can reject unauthenticated traffic
+	// before it consumes any rate budget, and so the limiter can key on the
+	// authenticated subject (see rateKey).
+	var protected http.Handler = api
+	if rl := buildRateLimiter(); rl != nil {
+		protected = rl.Wrap(rateKey, protected)
+	}
+
+	// Root mux: /healthz stays public (for liveness/readiness probes), everything
+	// else is served through auth + rate limiting.
+	root := http.NewServeMux()
+	root.HandleFunc("GET /healthz", srv.handleHealth)
+	root.Handle("/", authMW.Wrap(protected))
 
 	httpSrv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           mux,
+		Handler:           root,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		// No WriteTimeout: /chat/stream holds the response open while streaming.
@@ -84,6 +108,47 @@ func main() {
 		log.Fatalf("serve: %v", err)
 	}
 	log.Printf("stopped")
+}
+
+// buildAuth configures the API authentication middleware from the environment.
+// When OIDC_ISSUER is unset the API is left open — convenient for local
+// development, but every hosted deployment should set it (see docs/DEPLOYMENT.md).
+func buildAuth(ctx context.Context) (*auth.Middleware, error) {
+	issuer := os.Getenv("OIDC_ISSUER")
+	if issuer == "" {
+		log.Printf("WARNING: OIDC_ISSUER not set — API authentication DISABLED")
+		return auth.Disabled(), nil
+	}
+	audience := os.Getenv("OIDC_AUDIENCE")
+	if audience == "" {
+		return nil, errors.New("OIDC_ISSUER is set but OIDC_AUDIENCE is not")
+	}
+	log.Printf("OIDC authentication enabled (issuer=%s)", issuer)
+	return auth.New(ctx, issuer, audience)
+}
+
+// buildRateLimiter configures per-client rate limiting from the environment.
+// RATE_LIMIT_RPM is the sustained requests-per-minute budget (0 disables limiting
+// entirely); RATE_LIMIT_BURST is how many requests may arrive back-to-back.
+func buildRateLimiter() *ratelimit.Limiter {
+	rpm := config.IntEnv("RATE_LIMIT_RPM", 60)
+	if rpm <= 0 {
+		log.Printf("rate limiting disabled (RATE_LIMIT_RPM=%d)", rpm)
+		return nil
+	}
+	burst := config.IntEnv("RATE_LIMIT_BURST", 15)
+	log.Printf("rate limiting enabled (%d req/min, burst %d, per user or IP)", rpm, burst)
+	return ratelimit.New(float64(rpm)/60.0, float64(burst))
+}
+
+// rateKey buckets requests by the authenticated subject when available (a
+// validated JWT claim, so it can't be spoofed and survives shared IPs), falling
+// back to the client IP for unauthenticated local development.
+func rateKey(r *http.Request) string {
+	if sub := auth.Subject(r.Context()); sub != "" {
+		return "sub:" + sub
+	}
+	return "ip:" + ratelimit.ClientIP(r)
 }
 
 type server struct {

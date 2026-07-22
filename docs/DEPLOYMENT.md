@@ -58,15 +58,45 @@ needs `EMBEDDING_API_KEY`.
 ## Protecting the API (recommended for any public deployment)
 
 The API calls paid LLM/embedding endpoints, so an openly reachable server can
-run up a bill. Put it behind authentication. The intended approach is a standard
-**OIDC** provider (e.g. Authentik, Keycloak, Auth0): the client obtains a token
-and sends `Authorization: Bearer <JWT>`, and the server validates it against the
-provider's JWKS (issuer / audience configured via env). JWT-validation support
-and the app-side login flow are on the roadmap (see `docs/ROADMAP.md` §6).
+run up a bill. The server has built-in **OIDC** bearer-token authentication that
+works with any standard provider (Authentik, Keycloak, Auth0, ...). Enable it by
+setting two environment variables:
 
-A simpler interim gate is a shared static bearer token the server checks against
-a secret it reads from the environment — enough to keep random traffic out while
-proper SSO is wired up.
+- `OIDC_ISSUER` — the provider's issuer URL. The server discovers the provider's
+  signing keys from `<issuer>/.well-known/openid-configuration` at startup, so
+  the issuer must be reachable when the server starts.
+- `OIDC_AUDIENCE` — the audience (client ID) that tokens must be issued for.
+
+When both are set, every request except `GET /healthz` must carry a valid
+`Authorization: Bearer <JWT>`; anything missing/expired/wrong-audience or signed
+by a key the provider doesn't publish gets `401`. Validation is self-contained
+and offline: the server caches the provider's public keys (JWKS) and verifies
+each token's signature and claims locally — it never calls the provider per
+request.
+
+When `OIDC_ISSUER` is unset the API is left open and the server logs a warning
+at startup. That is fine for local development but should not be used for a
+hosted deployment.
+
+> The app-side login flow (Authorization Code + PKCE) that obtains these tokens
+> is on the roadmap (see `docs/ROADMAP.md` §6); it requires a custom mobile build
+> rather than Expo Go.
+
+### Rate limiting
+
+As a second layer (and the only cost guard when auth is off), the server applies
+a per-client token-bucket rate limit:
+
+- `RATE_LIMIT_RPM` — sustained requests per minute per client (default `60`; set
+  to `0` to disable).
+- `RATE_LIMIT_BURST` — how many requests may arrive back-to-back (default `15`).
+
+A limited request gets `429 Too Many Requests` with a `Retry-After` header. The
+key is the authenticated subject (the JWT `sub`) when auth is enabled — spoof-proof
+and robust to many clients sharing one IP behind NAT — and the client IP
+otherwise. Because it keys on the validated subject rather than a forwarding
+header, it works correctly behind a reverse proxy without trusting
+`X-Forwarded-For`.
 
 Always also set a hard monthly spend cap in the OpenAI and Anthropic dashboards
 as a backstop.

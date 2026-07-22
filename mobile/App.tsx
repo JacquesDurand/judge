@@ -22,11 +22,18 @@ import {
   askChatStream,
   getCard,
   getRule,
+  pingServer,
   searchCards,
   CardText,
   RuleCitation,
   RuleText,
 } from "./api";
+import {
+  DEFAULT_SERVER_URL,
+  getServerUrl,
+  loadServerUrl,
+  saveServerUrl,
+} from "./serverUrl";
 
 type Message = {
   id: string;
@@ -78,6 +85,18 @@ function ChatScreen() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [detail, setDetail] = useState<Detail>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [serverReady, setServerReady] = useState(false); // saved URL loaded from storage
+  const [configured, setConfigured] = useState(false); // a URL has been set at least once
+  const [showSettings, setShowSettings] = useState(false);
+
+  // Load the saved server URL on start; open the setup screen if none is set yet.
+  useEffect(() => {
+    loadServerUrl().then(({ configured }) => {
+      setConfigured(configured);
+      setServerReady(true);
+      if (!configured) setShowSettings(true);
+    });
+  }, []);
   const listRef = useRef<FlatList<Message>>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fragRef = useRef(""); // latest typed word, to drop stale search results
@@ -179,6 +198,17 @@ function ChatScreen() {
     });
   };
 
+  // Wait for the saved URL before rendering the chat, so the first request can't
+  // fire against the wrong (default) server.
+  if (!serverReady) {
+    return (
+      <View style={[styles.root, styles.splash]}>
+        <StatusBar style="light" />
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
@@ -186,6 +216,14 @@ function ChatScreen() {
       {/* Header background extends up behind the status bar via top inset padding. */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.headerTitle}>Assistant règles MTG</Text>
+        <Pressable
+          style={styles.gearBtn}
+          onPress={() => setShowSettings(true)}
+          hitSlop={10}
+          accessibilityLabel="Réglages du serveur"
+        >
+          <Text style={styles.gearIcon}>⚙</Text>
+        </Pressable>
       </View>
 
       <View style={[styles.flex, { paddingBottom: keyboardHeight }]}>
@@ -261,7 +299,131 @@ function ChatScreen() {
       </View>
 
       <DetailModal detail={detail} onClose={closeDetail} />
+
+      <ServerSettings
+        visible={showSettings}
+        canCancel={configured}
+        onCancel={() => setShowSettings(false)}
+        onSaved={() => {
+          setConfigured(true);
+          setShowSettings(false);
+        }}
+      />
     </View>
+  );
+}
+
+// ServerSettings lets the user enter (and test) the server address. It is shown
+// automatically on first launch — where it can't be cancelled until a URL is
+// saved — and reachable later via the header gear.
+function ServerSettings({
+  visible,
+  canCancel,
+  onCancel,
+  onSaved,
+}: {
+  visible: boolean;
+  canCancel: boolean;
+  onCancel: () => void;
+  onSaved: (url: string) => void;
+}) {
+  const [value, setValue] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<null | "ok" | "fail">(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset the form to the current URL each time the sheet opens.
+  useEffect(() => {
+    if (visible) {
+      setValue(getServerUrl() || DEFAULT_SERVER_URL);
+      setResult(null);
+      setError(null);
+      setTesting(false);
+    }
+  }, [visible]);
+
+  const test = async () => {
+    Keyboard.dismiss();
+    setError(null);
+    setResult(null);
+    setTesting(true);
+    // pingServer tolerates a raw value; a trailing slash is harmless on /healthz.
+    const ok = await pingServer(value.trim().replace(/\/+$/, ""));
+    setTesting(false);
+    setResult(ok ? "ok" : "fail");
+  };
+
+  const save = async () => {
+    try {
+      const url = await saveServerUrl(value);
+      onSaved(url);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={canCancel ? onCancel : undefined}
+    >
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalNumber}>Adresse du serveur</Text>
+          <Text style={styles.modalSection}>
+            Adresse du serveur MTG (Go). Sur téléphone, utilise l'IP du serveur sur
+            le réseau, pas « localhost ».
+          </Text>
+
+          <TextInput
+            style={styles.settingsInput}
+            value={value}
+            onChangeText={(t) => {
+              setValue(t);
+              setResult(null);
+              setError(null);
+            }}
+            placeholder="http://192.168.1.20:8090"
+            placeholderTextColor="#8a8f98"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            inputMode="url"
+          />
+
+          {result === "ok" && <Text style={styles.settingsOk}>Serveur joignable ✓</Text>}
+          {result === "fail" && (
+            <Text style={styles.settingsFail}>Injoignable. Vérifie l'adresse et le Wi-Fi.</Text>
+          )}
+          {error && <Text style={styles.settingsFail}>{error}</Text>}
+
+          <View style={styles.settingsRow}>
+            <Pressable
+              style={[styles.settingsBtn, styles.settingsBtnSecondary]}
+              onPress={test}
+              disabled={testing}
+            >
+              {testing ? (
+                <ActivityIndicator color="#c7ccd6" />
+              ) : (
+                <Text style={styles.settingsBtnSecondaryText}>Tester</Text>
+              )}
+            </Pressable>
+            <Pressable style={[styles.settingsBtn, styles.settingsBtnPrimary]} onPress={save}>
+              <Text style={styles.sendBtnText}>Enregistrer</Text>
+            </Pressable>
+          </View>
+
+          {canCancel && (
+            <Pressable style={styles.settingsCancel} onPress={onCancel} hitSlop={8}>
+              <Text style={styles.settingsCancelText}>Annuler</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -393,7 +555,11 @@ function Bubble({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#0f1115" },
   flex: { flex: 1 },
+  splash: { alignItems: "center", justifyContent: "center" },
   header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingBottom: 14,
     paddingHorizontal: 16,
     backgroundColor: "#1b1f27",
@@ -401,6 +567,8 @@ const styles = StyleSheet.create({
     borderBottomColor: "#2b303b",
   },
   headerTitle: { color: "#f2f4f8", fontSize: 18, fontWeight: "700" },
+  gearBtn: { paddingLeft: 12 },
+  gearIcon: { color: "#c7ccd6", fontSize: 20 },
   listContent: { padding: 12, gap: 10 },
   empty: {
     color: "#8a8f98",
@@ -527,4 +695,30 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   modalCloseText: { color: "#ffffff", fontWeight: "700" },
+  settingsInput: {
+    backgroundColor: "#0f1115",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#333a48",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: "#f2f4f8",
+    fontSize: 15,
+    marginTop: 4,
+  },
+  settingsOk: { color: "#7fd6a3", fontSize: 14, marginTop: 10 },
+  settingsFail: { color: "#e79aa5", fontSize: 14, marginTop: 10 },
+  settingsRow: { flexDirection: "row", gap: 10, marginTop: 16 },
+  settingsBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsBtnPrimary: { backgroundColor: "#3b6fed" },
+  settingsBtnSecondary: { backgroundColor: "#2b3247" },
+  settingsBtnSecondaryText: { color: "#c7ccd6", fontWeight: "700" },
+  settingsCancel: { alignSelf: "center", marginTop: 14, paddingVertical: 4 },
+  settingsCancelText: { color: "#8a8f98", fontSize: 14 },
 });
